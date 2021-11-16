@@ -8,6 +8,7 @@ get_ipython().system('pip install pyspark')
 
 
 # In[2]:
+#Importing the nesessary libraries
 
 
 import os
@@ -47,11 +48,12 @@ spark = SparkSession.builder.getOrCreate()
 
 # In[4]:
 
-
+#Importing the data set
 df = spark.read.format('csv').option("header","true").option("delimiter",",").load("gs://bdamlproject/WA_Fn-UseC_-HR-Employee-Attrition.csv")
 
 
 # In[5]:
+#Data description about colums
 
 
 for col in df.columns:
@@ -66,13 +68,13 @@ df.count()
 
 # In[7]:
 
-
+#Data type of each col
 df.dtypes
 
 
 # In[8]:
 
-
+#Converting data to pndas to draw graphs
 df1=df.toPandas()
 
 
@@ -84,13 +86,13 @@ df1
 
 # In[10]:
 
-
+#Data Description
 df1.describe()
 
 
 # In[11]:
 
-
+#Explorotory data analysis
 df_plot_Mar = df1.groupby(['Attrition', 'MaritalStatus']).size().reset_index().pivot(columns = 'Attrition', index = 'MaritalStatus', values = 0)
 df_plot_Env = df1.groupby(['Attrition', 'EnvironmentSatisfaction']).size().reset_index().pivot(columns = 'Attrition', index = 'EnvironmentSatisfaction', values = 0)
 df_plot_Inv = df1.groupby(['Attrition', 'JobInvolvement']).size().reset_index().pivot(columns = 'Attrition', index = 'JobInvolvement', values = 0)
@@ -141,7 +143,7 @@ from pyspark.ml.feature import VectorAssembler
 
 
 # In[18]:
-
+#REmoving the cols which are correlated and which are not relevent
 
 #deleting columns that are not required
 df_drop1=df.drop('DailyRate','Department','BusinessTravel','Education','EmployeeCount','EmployeeNumber','HourlyRate','MonthlyRate','Over18','OverTime','RelationshipSatisfaction','StandardHours','StockOptionLevel','YearsInCurrentRole','YearsSinceLastPromotion','YearsWithCurrManager','JobRole','EducationField')
@@ -149,7 +151,7 @@ df_drop1=df.drop('DailyRate','Department','BusinessTravel','Education','Employee
 
 # In[19]:
 
-
+#Droped table
 df_drop1.columns
 
 
@@ -166,7 +168,7 @@ from pyspark.sql.types import IntegerType
 
 
 # In[22]:
-
+#Converting string variables to interger type
 
 df_drop1= df_drop1.withColumn("Age",df["Age"].cast(IntegerType()))
 df_drop1= df_drop1.withColumn("DistanceFromHome",df["DistanceFromHome"].cast(IntegerType()))
@@ -193,7 +195,7 @@ from pyspark.sql.functions import lit
 
 # In[24]:
 
-
+#Recodig the varible which vhave string values
 df_drop1=df_drop1.withColumn("AttritionMod",when((df_drop1.Attrition=='Yes'), lit(1)) .otherwise(lit(0)))
 
 
@@ -217,7 +219,7 @@ df_drop1=df_drop1.withColumn("MaritalStatusMod",when((df_drop1.MaritalStatus=='Y
 
 # In[28]:
 
-
+#Transforming the variables
 df_drop1=df_drop1.withColumn("GenderMod",when((df_drop1.Gender=='Male'), lit(1)) .otherwise(lit(0)))
 
 
@@ -229,7 +231,7 @@ df_final=df_drop1.drop('Gender','MaritalStatus','Attrition')
 
 # In[30]:
 
-
+#Final table for analysis
 df_final.columns
 
 
@@ -269,6 +271,7 @@ from pyspark.ml.feature import VectorAssembler, StringIndexer, VectorIndexer, Mi
 
 from pyspark.ml.classification import LogisticRegression
 
+# Vector assembler
 Vect = VectorAssembler(inputCols=['Age','DistanceFromHome','EnvironmentSatisfaction','JobInvolvement','JobLevel',
                'JobSatisfaction','MonthlyIncome','NumCompaniesWorked','PercentSalaryHike','PerformanceRating','TotalWorkingYears',
                'TrainingTimesLastYear','WorkLifeBalance','YearsAtCompany','MaritalStatusMod','GenderMod'], outputCol="features")
@@ -283,7 +286,7 @@ catIdx = VectorIndexer(inputCol = Vect.getOutputCol(), outputCol = "idxCatFeatur
 
 # In[39]:
 
-
+#Splitting the data
 train, test = df_final.randomSplit([0.8,0.2])
 
 
@@ -301,25 +304,25 @@ test.count()
 
 # In[42]:
 
-
+#Creating the LR algorithm
 lr = LogisticRegression(labelCol="AttritionMod",featuresCol="features",maxIter=10,regParam=0.3)
 
 
 # In[43]:
 
-
+#Creating the pipeline model
 pipeline1 = Pipeline(stages=[Vect, catIdx, lr])
 
 
 # In[44]:
 
-
+#Fiting training dta
 pipelineModel = pipeline1.fit(train)
 
 
 # In[45]:
 
-
+#Predicting testing data
 prediction1 = pipelineModel.transform(test)
 
 
@@ -332,7 +335,7 @@ predicted.show(100, truncate=False)
 
 # In[114]:
 
-
+#Confusion matrix
 tp = float(predicted.filter("prediction == 1.0 AND AttritionMod== 1").count())
 fp = float(predicted.filter("prediction == 1.0 AND AttritionMod == 0").count())
 tn = float(predicted.filter("prediction == 0.0 AND AttritionMod== 0").count())
@@ -352,7 +355,7 @@ metrics.show()
 
 # In[ ]:
 
-
+#Area under the curve
 evaluator = BinaryClassificationEvaluator(labelCol="AttritionMod", rawPredictionCol="rawPrediction", metricName="areaUnderROC")
 aur = evaluator.evaluate(prediction)
 print ("AUR = ", aur)
