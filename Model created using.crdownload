@@ -1,0 +1,324 @@
+#!/usr/bin/env python
+# coding: utf-8
+
+# In[2]:
+
+
+get_ipython().system('pip install pyspark')
+
+
+# In[3]:
+
+
+import os
+import pandas as pd
+import numpy as np
+
+from pyspark import SparkConf, SparkContext
+from pyspark.sql import SparkSession, SQLContext
+
+import pyspark.sql.functions as F
+from pyspark.sql.functions import udf, col
+
+from pyspark.ml.tuning import ParamGridBuilder, CrossValidator
+from pyspark.ml.evaluation import BinaryClassificationEvaluator
+
+from pyspark.sql.functions import udf, col
+
+
+from pyspark.mllib.evaluation import RegressionMetrics
+
+from pyspark.ml.tuning import ParamGridBuilder, CrossValidator, CrossValidatorModel
+from pyspark.ml.feature import VectorAssembler, StandardScaler
+from pyspark.ml.evaluation import RegressionEvaluator
+
+from pyspark.ml.tuning import ParamGridBuilder, CrossValidator
+from pyspark.ml.evaluation import BinaryClassificationEvaluator
+
+from pyspark.ml import Pipeline
+
+
+# In[4]:
+
+
+from pyspark.sql import SparkSession
+spark = SparkSession     .builder     .getOrCreate()
+
+
+# In[5]:
+
+
+df = spark.read.format('csv').option("header","true").option("delimiter",",").load("gs://bdamlproject/TurnoverIntentionatBenzInfotech.csv")
+
+
+# In[6]:
+
+
+for col in df.columns:
+            print(col)
+
+
+# In[6]:
+
+
+df.count()
+
+
+# In[7]:
+
+
+df.dtypes
+
+
+# In[8]:
+
+
+df1=df.toPandas()
+
+
+# In[9]:
+
+
+df1
+
+
+# In[10]:
+
+
+df1.describe()
+
+
+# In[11]:
+
+
+df1.isna().sum()
+
+
+# In[1]:
+
+
+df= df.withColumn("Tenure",df["Tenure"].cast(IntegerType()))
+df= df.withColumn("PerfRating",df["PerfRating"].cast(IntegerType()))
+df= df.withColumn("JobSatisfaction",df["JobSatisfaction"].cast(IntegerType()))
+df= df.withColumn("Engagement",df["Engagement"].cast(IntegerType()))
+df= df.withColumn("OnsiteOpportunity",df["OnsiteOpportunity"].cast(IntegerType()))
+df= df.withColumn("Awards",df["Awards"].cast(IntegerType()))
+df= df.withColumn("Flexihours",df["Flexihours"].cast(IntegerType()))
+df= df.withColumn("Intention",df["Intention"].cast(IntegerType()))
+
+
+# In[ ]:
+
+
+from pyspark.ml.stat import Correlation
+from pyspark.ml.feature import VectorAssembler
+
+
+# In[43]:
+
+
+from pyspark.sql.types import IntegerType
+
+
+# In[44]:
+
+
+from pyspark.sql.functions import when
+from pyspark.sql.functions import lit
+
+
+# In[45]:
+
+
+df.columns
+
+
+# In[46]:
+
+
+features = ['Tenure',
+ 'PerfRating',
+ 'JobSatisfaction',
+ 'Engagement',
+ 'OnsiteOpportunity',
+ 'Awards',
+ 'Flexihours']
+from pyspark.ml.feature import VectorAssembler, StringIndexer, VectorIndexer, MinMaxScaler,Normalizer
+
+from pyspark.ml.classification import LogisticRegression
+
+Vect = VectorAssembler(inputCols=['Tenure',
+ 'PerfRating',
+ 'JobSatisfaction',
+ 'Engagement',
+ 'OnsiteOpportunity',
+ 'Awards',
+ 'Flexihours'], outputCol="features")
+
+
+
+# In[47]:
+
+
+catIdx = VectorIndexer(inputCol = Vect.getOutputCol(), outputCol = "idxCatFeatures")
+
+
+# In[48]:
+
+
+train, test = df.randomSplit([0.8,0.2])
+
+
+# In[49]:
+
+
+train.count()
+
+
+# In[50]:
+
+
+test.count()
+
+
+# In[51]:
+
+
+lr = LogisticRegression(labelCol='Intention',featuresCol="features",maxIter=10,regParam=0.3)
+
+
+# In[52]:
+
+
+pipeline1 = Pipeline(stages=[Vect, catIdx, lr])
+
+
+# In[53]:
+
+
+pipelineModel = pipeline1.fit(train)
+
+
+# In[54]:
+
+
+prediction1 = pipelineModel.transform(test)
+
+
+# In[56]:
+
+
+predicted=prediction1.select("Intention","prediction")
+predicted.show(100, truncate=False)
+
+
+# In[58]:
+
+
+tp = float(predicted.filter("prediction == 1.0 AND Intention== 1").count())
+fp = float(predicted.filter("prediction == 1.0 AND Intention == 0").count())
+tn = float(predicted.filter("prediction == 0.0 AND Intention== 0").count())
+fn = float(predicted.filter("prediction == 0.0 AND Intention == 1").count())
+pr = tp / (tp + fp)
+re = tp / (tp + fn)
+metrics = spark.createDataFrame([
+ ("TP", tp),
+ ("FP", fp),
+ ("TN", tn),
+ ("FN", fn),
+ ("Precision", pr),
+ ("Recall", re),
+ ("F1", 2*pr*re/(re+pr))],["metric", "value"])
+metrics.show()
+
+
+# In[59]:
+
+
+evaluator = BinaryClassificationEvaluator(labelCol="AttritionMod", rawPredictionCol="rawPrediction", metricName="areaUnderROC")
+aur = evaluator.evaluate(prediction)
+print ("AUR = ", aur)
+
+
+# In[61]:
+
+
+from pyspark.ml.feature import VectorAssembler
+assembler = VectorAssembler(inputCols=featureCols, outputCol="features")
+
+assembled_df = assembler.transform(df_final)
+assembled_df.show(10, truncate=False)
+
+
+# In[62]:
+
+
+normalizer = Normalizer(inputCol="features",outputCol="features_norm")
+
+
+# In[63]:
+
+
+lr = LogisticRegression(featuresCol="features_norm",labelCol="AttritionMod",maxIter=10,regParam=0.3,elasticNetParam=0.2)
+
+
+# In[64]:
+
+
+pipeline = Pipeline(stages=[assembler,normalizer,lr])
+
+
+# In[65]:
+
+
+piplineModel = pipeline.fit(train)
+
+
+# In[66]:
+
+
+prediction = piplineModel.transform(test)
+
+
+# In[67]:
+
+
+prediction.select("AttritionMod","prediction").show(100)
+
+
+# In[68]:
+
+
+from pyspark.ml.feature import VectorAssembler
+assembler = VectorAssembler(inputCols=featureCols, outputCol="features")
+
+assembled_df = assembler.transform(df_final)
+assembled_df.show(10, truncate=False)
+
+
+# In[69]:
+
+
+standardScaler = StandardScaler(inputCol="features", outputCol="features_scaled")
+scaled_df = standardScaler.fit(assembled_df).transform(assembled_df)
+
+scaled_df.select("features", "features_scaled").show(10, truncate=False)
+train_data, test_data = scaled_df.randomSplit([0.8,0.2])
+
+
+# In[70]:
+
+
+lr = LogisticRegression(featuresCol="features_scaled",labelCol="AttritionMod",maxIter=10,regParam=0.3,elasticNetParam=0.2)
+
+linearModel = lr.fit(train_data)
+predictions = linearModel.transform(test_data)
+
+predictions.select("AttritionMod","prediction").show(100)
+
+
+# In[ ]:
+
+
+
+

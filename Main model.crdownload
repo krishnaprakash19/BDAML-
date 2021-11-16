@@ -1,0 +1,442 @@
+#!/usr/bin/env python
+# coding: utf-8
+
+# In[1]:
+
+
+get_ipython().system('pip install pyspark')
+
+
+# In[2]:
+
+
+import os
+import pandas as pd
+import numpy as np
+
+from pyspark import SparkConf, SparkContext
+from pyspark.sql import SparkSession, SQLContext
+
+import pyspark.sql.functions as F
+from pyspark.sql.functions import udf, col
+
+from pyspark.ml.tuning import ParamGridBuilder, CrossValidator
+from pyspark.ml.evaluation import BinaryClassificationEvaluator
+
+from pyspark.sql.functions import udf, col
+
+
+from pyspark.mllib.evaluation import RegressionMetrics
+
+from pyspark.ml.tuning import ParamGridBuilder, CrossValidator, CrossValidatorModel
+from pyspark.ml.feature import VectorAssembler, StandardScaler
+from pyspark.ml.evaluation import RegressionEvaluator
+
+from pyspark.ml.tuning import ParamGridBuilder, CrossValidator
+from pyspark.ml.evaluation import BinaryClassificationEvaluator
+
+from pyspark.ml import Pipeline
+
+
+# In[3]:
+
+
+from pyspark.sql import SparkSession
+spark = SparkSession.builder.getOrCreate()
+
+
+# In[4]:
+
+
+df = spark.read.format('csv').option("header","true").option("delimiter",",").load("gs://bdamlproject/WA_Fn-UseC_-HR-Employee-Attrition.csv")
+
+
+# In[5]:
+
+
+for col in df.columns:
+            print(col)
+
+
+# In[6]:
+
+
+df.count()
+
+
+# In[7]:
+
+
+df.dtypes
+
+
+# In[8]:
+
+
+df1=df.toPandas()
+
+
+# In[9]:
+
+
+df1
+
+
+# In[10]:
+
+
+df1.describe()
+
+
+# In[11]:
+
+
+df_plot_Mar = df1.groupby(['Attrition', 'MaritalStatus']).size().reset_index().pivot(columns = 'Attrition', index = 'MaritalStatus', values = 0)
+df_plot_Env = df1.groupby(['Attrition', 'EnvironmentSatisfaction']).size().reset_index().pivot(columns = 'Attrition', index = 'EnvironmentSatisfaction', values = 0)
+df_plot_Inv = df1.groupby(['Attrition', 'JobInvolvement']).size().reset_index().pivot(columns = 'Attrition', index = 'JobInvolvement', values = 0)
+df_plot_Bln = df1.groupby(['Attrition', 'WorkLifeBalance']).size().reset_index().pivot(columns = 'Attrition', index = 'WorkLifeBalance', values = 0)
+
+
+# In[12]:
+
+
+df_plot_Mar.plot(kind = 'bar', stacked = True, color = ['#6B8E23','y'])
+df_plot_Env.plot(kind = 'bar', stacked = True, color = ['#6B8E23','y'])
+df_plot_Inv.plot(kind = 'bar', stacked = True, color = ['#6B8E23','y'])
+df_plot_Bln.plot(kind = 'bar', stacked = True, color = ['#6B8E23','y'])
+
+
+# In[13]:
+
+
+df1.isna().sum()
+
+
+# In[14]:
+
+
+dfs = df1.groupby(['Attrition', 'Gender']).size().reset_index()
+dfs
+
+
+# In[15]:
+
+
+df_plot_Gen = df1.groupby(['Attrition', 'Gender']).size().reset_index().pivot(columns = 'Attrition', index = 'Gender', values = 0)
+df_plot_Gen
+
+
+# In[16]:
+
+
+df_plot_Gen.plot(kind = 'bar', stacked = True, color = ['#45A7A3','y'])
+plt.show()
+
+
+# In[17]:
+
+
+from pyspark.ml.stat import Correlation
+from pyspark.ml.feature import VectorAssembler
+
+
+# In[18]:
+
+
+#deleting columns that are not required
+df_drop1=df.drop('DailyRate','Department','BusinessTravel','Education','EmployeeCount','EmployeeNumber','HourlyRate','MonthlyRate','Over18','OverTime','RelationshipSatisfaction','StandardHours','StockOptionLevel','YearsInCurrentRole','YearsSinceLastPromotion','YearsWithCurrManager','JobRole','EducationField')
+
+
+# In[19]:
+
+
+df_drop1.columns
+
+
+# In[20]:
+
+
+df_drop1.dtypes
+
+
+# In[21]:
+
+
+from pyspark.sql.types import IntegerType
+
+
+# In[22]:
+
+
+df_drop1= df_drop1.withColumn("Age",df["Age"].cast(IntegerType()))
+df_drop1= df_drop1.withColumn("DistanceFromHome",df["DistanceFromHome"].cast(IntegerType()))
+df_drop1= df_drop1.withColumn("EnvironmentSatisfaction",df["EnvironmentSatisfaction"].cast(IntegerType()))
+df_drop1= df_drop1.withColumn("JobInvolvement",df["JobInvolvement"].cast(IntegerType()))
+df_drop1= df_drop1.withColumn("JobLevel",df["JobLevel"].cast(IntegerType()))
+df_drop1= df_drop1.withColumn("JobSatisfaction",df["JobSatisfaction"].cast(IntegerType()))
+df_drop1= df_drop1.withColumn("MonthlyIncome",df["MonthlyIncome"].cast(IntegerType()))
+df_drop1= df_drop1.withColumn("NumCompaniesWorked",df["NumCompaniesWorked"].cast(IntegerType()))
+df_drop1= df_drop1.withColumn("PercentSalaryHike",df["PercentSalaryHike"].cast(IntegerType()))
+df_drop1= df_drop1.withColumn("PerformanceRating",df["PerformanceRating"].cast(IntegerType()))
+df_drop1= df_drop1.withColumn("TotalWorkingYears",df["TotalWorkingYears"].cast(IntegerType()))
+df_drop1= df_drop1.withColumn("TrainingTimesLastYear",df["TrainingTimesLastYear"].cast(IntegerType()))
+df_drop1= df_drop1.withColumn("WorkLifeBalance",df["WorkLifeBalance"].cast(IntegerType()))
+df_drop1= df_drop1.withColumn("YearsAtCompany",df["YearsAtCompany"].cast(IntegerType()))
+
+
+# In[23]:
+
+
+from pyspark.sql.functions import when
+from pyspark.sql.functions import lit
+
+
+# In[24]:
+
+
+df_drop1=df_drop1.withColumn("AttritionMod",when((df_drop1.Attrition=='Yes'), lit(1)) .otherwise(lit(0)))
+
+
+# In[25]:
+
+
+df_drop1.describe()
+
+
+# In[26]:
+
+
+df_drop1.head(5)
+
+
+# In[27]:
+
+
+df_drop1=df_drop1.withColumn("MaritalStatusMod",when((df_drop1.MaritalStatus=='Yes'), lit(1)) .otherwise(lit(0)))
+
+
+# In[28]:
+
+
+df_drop1=df_drop1.withColumn("GenderMod",when((df_drop1.Gender=='Male'), lit(1)) .otherwise(lit(0)))
+
+
+# In[29]:
+
+
+df_final=df_drop1.drop('Gender','MaritalStatus','Attrition')
+
+
+# In[30]:
+
+
+df_final.columns
+
+
+# In[31]:
+
+
+df_final = df_final.withColumn("GenderMod",df_final["GenderMod"].cast(IntegerType()))
+df_final = df_final.withColumn("MaritalStatusMod",df_final["MaritalStatusMod"].cast(IntegerType()))
+df_final = df_final.withColumn("AttritionMod",df_final["AttritionMod"].cast(IntegerType()))
+
+
+# In[32]:
+
+
+df_final.dtypes
+
+
+# In[33]:
+
+
+dffinal1=df_final.toPandas()
+
+
+# In[36]:
+
+
+dffinal1
+
+
+# In[37]:
+
+
+featurescols = ['Age','DistanceFromHome','EnvironmentSatisfaction','JobInvolvement','JobLevel',
+               'JobSatisfaction','MonthlyIncome','NumCompaniesWorked','PercentSalaryHike','PerformanceRating','TotalWorkingYears',
+               'TrainingTimesLastYear','WorkLifeBalance','YearsAtCompany','MaritalStatusMod','GenderMod']
+from pyspark.ml.feature import VectorAssembler, StringIndexer, VectorIndexer, MinMaxScaler,Normalizer
+
+from pyspark.ml.classification import LogisticRegression
+
+Vect = VectorAssembler(inputCols=['Age','DistanceFromHome','EnvironmentSatisfaction','JobInvolvement','JobLevel',
+               'JobSatisfaction','MonthlyIncome','NumCompaniesWorked','PercentSalaryHike','PerformanceRating','TotalWorkingYears',
+               'TrainingTimesLastYear','WorkLifeBalance','YearsAtCompany','MaritalStatusMod','GenderMod'], outputCol="features")
+
+
+
+# In[38]:
+
+
+catIdx = VectorIndexer(inputCol = Vect.getOutputCol(), outputCol = "idxCatFeatures")
+
+
+# In[39]:
+
+
+train, test = df_final.randomSplit([0.8,0.2])
+
+
+# In[40]:
+
+
+train.count()
+
+
+# In[41]:
+
+
+test.count()
+
+
+# In[42]:
+
+
+lr = LogisticRegression(labelCol="AttritionMod",featuresCol="features",maxIter=10,regParam=0.3)
+
+
+# In[43]:
+
+
+pipeline1 = Pipeline(stages=[Vect, catIdx, lr])
+
+
+# In[44]:
+
+
+pipelineModel = pipeline1.fit(train)
+
+
+# In[45]:
+
+
+prediction1 = pipelineModel.transform(test)
+
+
+# In[46]:
+
+
+predicted=prediction1.select("AttritionMod","prediction")
+predicted.show(100, truncate=False)
+
+
+# In[114]:
+
+
+tp = float(predicted.filter("prediction == 1.0 AND AttritionMod== 1").count())
+fp = float(predicted.filter("prediction == 1.0 AND AttritionMod == 0").count())
+tn = float(predicted.filter("prediction == 0.0 AND AttritionMod== 0").count())
+fn = float(predicted.filter("prediction == 0.0 AND AttritionMod == 1").count())
+pr = tp / (tp + fp)
+re = tp / (tp + fn)
+metrics = spark.createDataFrame([
+ ("TP", tp),
+ ("FP", fp),
+ ("TN", tn),
+ ("FN", fn),
+ ("Precision", pr),
+ ("Recall", re),
+ ("F1", 2*pr*re/(re+pr))],["metric", "value"])
+metrics.show()
+
+
+# In[ ]:
+
+
+evaluator = BinaryClassificationEvaluator(labelCol="AttritionMod", rawPredictionCol="rawPrediction", metricName="areaUnderROC")
+aur = evaluator.evaluate(prediction)
+print ("AUR = ", aur)
+
+
+# In[61]:
+
+
+from pyspark.ml.feature import VectorAssembler
+assembler = VectorAssembler(inputCols=featureCols, outputCol="features")
+
+assembled_df = assembler.transform(df_final)
+assembled_df.show(10, truncate=False)
+
+
+# In[62]:
+
+
+normalizer = Normalizer(inputCol="features",outputCol="features_norm")
+
+
+# In[63]:
+
+
+lr = LogisticRegression(featuresCol="features_norm",labelCol="AttritionMod",maxIter=10,regParam=0.3,elasticNetParam=0.2)
+
+
+# In[64]:
+
+
+pipeline = Pipeline(stages=[assembler,normalizer,lr])
+
+
+# In[65]:
+
+
+piplineModel = pipeline.fit(train)
+
+
+# In[66]:
+
+
+prediction = piplineModel.transform(test)
+
+
+# In[67]:
+
+
+prediction.select("AttritionMod","prediction").show(100)
+
+
+# In[68]:
+
+
+from pyspark.ml.feature import VectorAssembler
+assembler = VectorAssembler(inputCols=featureCols, outputCol="features")
+
+assembled_df = assembler.transform(df_final)
+assembled_df.show(10, truncate=False)
+
+
+# In[69]:
+
+
+standardScaler = StandardScaler(inputCol="features", outputCol="features_scaled")
+scaled_df = standardScaler.fit(assembled_df).transform(assembled_df)
+
+scaled_df.select("features", "features_scaled").show(10, truncate=False)
+train_data, test_data = scaled_df.randomSplit([0.8,0.2])
+
+
+# In[70]:
+
+
+lr = LogisticRegression(featuresCol="features_scaled",labelCol="AttritionMod",maxIter=10,regParam=0.3,elasticNetParam=0.2)
+
+linearModel = lr.fit(train_data)
+predictions = linearModel.transform(test_data)
+
+predictions.select("AttritionMod","prediction").show(100)
+
+
+# In[ ]:
+
+
+
+
